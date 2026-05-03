@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>RakshaAI Dashboard</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: white;
+      padding: 30px;
+    }
+
+    h1 {
+      font-size: 34px;
+      margin-bottom: 10px;
+    }
+
+    #map {
+      height: 430px;
+      width: 100%;
+      border-radius: 18px;
+      margin: 20px 0;
+      border: 2px solid #334155;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .card {
+      background: #1e293b;
+      padding: 22px;
+      border-radius: 18px;
+      margin-bottom: 18px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+    }
+
+    .safe { color: #22c55e; }
+    .watch { color: #facc15; }
+    .danger { color: #ef4444; }
+
+    button {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      margin-right: 8px;
+      font-weight: bold;
+      margin-bottom: 12px;
+    }
+
+    .online {
+      color: #22c55e;
+      font-weight: bold;
+    }
+
+    .offline {
+      color: #ef4444;
+      font-weight: bold;
+    }
+
+    .user-item {
+      background: #020617;
+      padding: 14px;
+      border-radius: 12px;
+      margin-bottom: 10px;
+    }
+
+    .config {
+      margin-bottom: 20px;
+      padding: 18px;
+      background: #111827;
+      border: 1px solid #334155;
+      border-radius: 18px;
+    }
+
+    .config input {
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
+      border-radius: 12px;
+      border: 1px solid #334155;
+      background: #020617;
+      color: white;
+    }
+
+    .config button {
+      width: 100%;
+      margin-top: 10px;
+      background: #2563eb;
+      color: white;
+    }
+
+    .hint {
+      color: #94a3b8;
+      margin-top: 10px;
+    }
+
+    .top-links {
+      margin-bottom: 20px;
+    }
+
+    .top-links a {
+      color: #38bdf8;
+      text-decoration: none;
+      margin-right: 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🛡️ RakshaAI Emergency Dashboard</h1>
+
+  <div class="top-links">
+    <a href="/public/phone_sender.html">Open friend sender page</a>
+    <a href="/admin/dashboard.html">Reload dashboard</a>
+  </div>
+
+  <div class="config">
+    <strong>Backend API URL</strong>
+    <input id="backendUrl" placeholder="https://abc123.ngrok-free.app" autocomplete="off" />
+    <button onclick="saveBackendUrl()">Save Backend URL</button>
+    <p class="hint" id="backendHint">Set your backend ngrok URL to connect the dashboard to live updates.</p>
+  </div>
+
+  <div id="map"></div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>📍 Live Tracking Permission</h2>
+      <p><b>Total Users:</b> <span id="totalUsers">0</span></p>
+      <p><b>Active User:</b> <span id="trackingUser">Waiting...</span></p>
+      <p><b>Permission:</b> <span id="permissionStatus">Waiting...</span></p>
+      <p><b>Permission Time:</b> <span id="permissionTime">Waiting...</span></p>
+      <p><b>Vehicle / Movement:</b> <span id="vehicleType">Waiting...</span></p>
+      <p><b>Accuracy:</b> <span id="accuracyStatus">Waiting...</span></p>
+      <p><b>Battery:</b> <span id="batteryStatus">Waiting...</span></p>
+    </div>
+
+    <div class="card">
+      <h2>👥 Users Who Shared Location</h2>
+      <div id="sessionList">Waiting...</div>
+    </div>
+
+    <div class="card">
+      <h2>🧭 Travel History</h2>
+      <div id="historyPanel">Loading...</div>
+    </div>
+  </div>
+
+  <button onclick="loadTimeline()">Load Emergency Timeline</button>
+  <button onclick="startLiveMonitor()">Start Live Monitor</button>
+
+  <div class="card">
+    <h2>🚨 Real-Time Danger Detection</h2>
+    <h1 id="liveRisk">Waiting...</h1>
+    <p id="liveReason">Monitoring real user safety signals...</p>
+    <div id="dangerAlert"></div>
+  </div>
+
+  <div id="timeline"></div>
+
+  <script>
+    const BACKEND_URL_KEY = 'rakshaai_backend_url';
+
+    function getQueryParam(name) {
+      return new URLSearchParams(window.location.search).get(name);
+    }
+
+    function inferBackendUrl() {
+      const origin = window.location.origin;
+      if (origin.startsWith('http')) {
+        return origin;
+      }
+      return '';
+    }
+
+    function getBackendUrl() {
+      const stored = localStorage.getItem(BACKEND_URL_KEY);
+      if (stored) return stored;
+      const query = getQueryParam('backend');
+      if (query) return query;
+      return inferBackendUrl();
+    }
+
+    function updateBackendHint() {
+      const backendUrl = getBackendUrl();
+      const hint = document.getElementById('backendHint');
+      hint.innerText = backendUrl
+        ? `Using backend: ${backendUrl}`
+        : 'Set a backend URL before loading live data.';
+    }
+
+    function saveBackendUrl() {
+      const url = document.getElementById('backendUrl').value.trim();
+      if (!url) {
+        alert('Please enter the backend ngrok URL first.');
+        return;
+      }
+      localStorage.setItem(BACKEND_URL_KEY, url);
+      updateBackendHint();
+      document.getElementById('backendUrl').value = url;
+    }
+
+    const map = L.map('map').setView([17.3850, 78.4867], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+      maxZoom: 20,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let userMarkers = {};
+    let userPaths = {};
+    let userLastValidLocation = {};
+
+    function getColor(index) {
+      const colors = ['#2563eb', '#ef4444', '#22c55e', '#facc15', '#a855f7', '#ec4899'];
+      return colors[index % colors.length];
+    }
+
+    async function fetchJson(path) {
+      const backendUrl = getBackendUrl();
+      const res = await fetch(`${backendUrl}${path}`);
+      if (!res.ok) {
+        throw new Error(`Backend returned ${res.status}`);
+      }
+      return res.json();
+    }
+
+    async function updateRealLocations() {
+      try {
+        const data = await fetchJson('/location/latest');
+        if (!data.users) return;
+
+        document.getElementById('totalUsers').innerText = data.total_users;
+
+        data.users.forEach((user, index) => {
+          const name = user.user;
+          const newLocation = [user.lat, user.lng];
+          const online = user.status === 'ONLINE';
+          const accuracy = user.accuracy || 999;
+
+          if (index === 0) {
+            document.getElementById('trackingUser').innerText = name;
+            document.getElementById('permissionStatus').innerHTML =
+              online ? `<span class="online">GRANTED - ONLINE</span>` : `<span class="offline">OFFLINE / PAGE CLOSED</span>`;
+            document.getElementById('permissionTime').innerText = user.permission_time;
+            document.getElementById('vehicleType').innerText = `${user.vehicle} (${Number(user.speed || 0).toFixed(1)} km/h)`;
+            document.getElementById('accuracyStatus').innerText = `${Number(accuracy).toFixed(1)} meters`;
+            document.getElementById('batteryStatus').innerText = user.battery !== undefined ? `${user.battery}%` : 'Unknown';
+          }
+
+          if (accuracy > 500) return;
+
+          if (userLastValidLocation[name]) {
+            const jump = map.distance(userLastValidLocation[name], newLocation);
+            if (jump > 300 && user.speed < 20) return;
+          }
+
+          userLastValidLocation[name] = newLocation;
+
+          if (!userMarkers[name]) {
+            userMarkers[name] = L.marker(newLocation).addTo(map);
+            userMarkers[name].bindTooltip(name, { permanent: true, direction: 'top', offset: [0, -10] });
+            userPaths[name] = L.polyline([], { color: getColor(index), weight: 5, opacity: 0.85 }).addTo(map);
+          }
+
+          userMarkers[name].setLatLng(newLocation);
+          if (user.route && user.route.length) {
+            userPaths[name].setLatLngs(user.route);
+          }
+
+          if (online) {
+            map.panTo(newLocation, { animate: true, duration: 1.2 });
+          }
+        });
+      } catch (err) {
+        console.error('updateRealLocations error', err);
+      }
+    }
+
+    async function loadSessions() {
+      try {
+        const sessions = await fetchJson('/tracking/sessions');
+        let html = '';
+
+        sessions.forEach(user => {
+          const statusClass = user.status === 'ONLINE' ? 'online' : 'offline';
+          html += `
+            <div class="user-item">
+              <h3>${user.user}</h3>
+
+              <b>Status:</b> <span class="${statusClass}">${user.status}</span><br>
+              <b>Permission:</b> ${user.permission}<br>
+              <b>Started:</b> ${user.started_at}<br>
+              <b>Last Seen:</b> ${user.last_seen}<br><br>
+
+              <b>Start Location:</b> ${user.start_location ? user.start_location[0].toFixed(6) + ", " + user.start_location[1].toFixed(6) : "Not available"}<br>
+
+              <b>Current / End Location:</b> ${user.end_location ? user.end_location[0].toFixed(6) + ", " + user.end_location[1].toFixed(6) : "Not available"}<br>
+
+              <b>Total Distance:</b> ${user.total_distance_km || 0} km<br>
+              <b>Route Points:</b> ${user.route_points}<br><br>
+
+              <b>Vehicle:</b> ${user.vehicle}<br>
+              <b>Speed:</b> ${Number(user.speed || 0).toFixed(1)} km/h<br>
+              <b>Accuracy:</b> ${Number(user.accuracy || 0).toFixed(1)} meters<br>
+              <b>Battery:</b> ${user.battery || "Unknown"}%<br>
+
+              ${
+                user.risk
+                  ? `<br><b>Risk:</b> ${user.risk.risk_score}/100 - ${user.risk.risk_band}<br>
+                     <b>Reasons:</b> ${user.risk.reasons.join(", ") || "Normal"}`
+                  : ""
+              }
+            </div>
+          `;
+        });
+
+        document.getElementById('sessionList').innerHTML = html || 'No users yet.';
+      } catch (err) {
+        console.error('loadSessions error', err);
+      }
+    }
+
+    async function loadHistory() {
+      try {
+        const data = await fetchJson('/tracking/history');
+        let html = '';
+        if (!data.history || data.history.length === 0) {
+          html = 'No travel history yet.';
+        } else {
+          const grouped = {};
+          data.history.forEach(item => {
+            if (!grouped[item.user]) grouped[item.user] = [];
+            grouped[item.user].push(item);
+          });
+          Object.keys(grouped).forEach(user => {
+            const route = grouped[user];
+            const start = route[0];
+            const end = route[route.length - 1];
+            html += `
+              <div class="user-item">
+                <b>${user}</b><br>
+                From: (${start.lat.toFixed(4)}, ${start.lng.toFixed(4)})<br>
+                To: (${end.lat.toFixed(4)}, ${end.lng.toFixed(4)})<br>
+                Started: ${start.timestamp}<br>
+                Ended: ${end.timestamp}<br>
+                Total Points: ${route.length}
+              </div>
+            `;
+          });
+        }
+        document.getElementById('historyPanel').innerHTML = html;
+      } catch (err) {
+        console.error('loadHistory error', err);
+      }
+    }
+
+    async function loadTimeline() {
+      try {
+        const data = await fetchJson('/demo/timeline');
+        let html = `<h2>${data.mode}</h2>`;
+        data.timeline.forEach(item => {
+          const cls = item.risk_band.toLowerCase();
+          html += `
+            <div class="card">
+              <h3>${item.time} - ${item.event}</h3>
+              <p>${item.description}</p>
+              <h2 class="${cls}">Risk: ${item.risk_score} (${item.risk_band})</h2>
+            </div>
+          `;
+        });
+        document.getElementById('timeline').innerHTML = html;
+      } catch (err) {
+        console.error('loadTimeline error', err);
+      }
+    }
+
+    function startLiveMonitor() {
+      setInterval(async () => {
+        try {
+          const data = await fetchJson('/risk/live');
+          if (!data.results || data.results.length === 0) {
+            document.getElementById('liveRisk').innerHTML = 'No active users';
+            document.getElementById('liveReason').innerHTML = 'Waiting for location sharing.';
+            return;
+          }
+          const user = data.results[0];
+          const risk = user.risk;
+          document.getElementById('liveRisk').innerHTML = `${risk.risk_score} / 100 - ${risk.risk_band}`;
+          document.getElementById('liveReason').innerHTML =
+            risk.reasons.length > 0
+              ? `User: ${user.user}<br>Reasons: ${risk.reasons.join(', ')}`
+              : `User: ${user.user}<br>All signals normal.`;
+          if (risk.risk_band === 'DANGER') {
+            document.getElementById('liveRisk').style.color = '#ef4444';
+            document.getElementById('dangerAlert').innerHTML = '<h2 style="color:#ef4444;">🚨 AUTO ALERT: Trusted contacts should be notified immediately!</h2>';
+          } else if (risk.risk_band === 'ALERT') {
+            document.getElementById('liveRisk').style.color = '#fb923c';
+            document.getElementById('dangerAlert').innerHTML = '<h2 style="color:#fb923c;">⚠️ ALERT: Check user\'s safety.</h2>';
+          } else if (risk.risk_band === 'WATCH') {
+            document.getElementById('liveRisk').style.color = '#facc15';
+            document.getElementById('dangerAlert').innerHTML = '<h2 style="color:#facc15;">👀 WATCH: Mild safety concern detected.</h2>';
+          } else {
+            document.getElementById('liveRisk').style.color = '#22c55e';
+            document.getElementById('dangerAlert').innerHTML = '<h2 style="color:#22c55e;">✅ SAFE: No danger detected.</h2>';
+          }
+        } catch (err) {
+          console.error('startLiveMonitor error', err);
+        }
+      }, 3000);
+    }
+
+    window.addEventListener('load', () => {
+      const backendUrl = getBackendUrl();
+      document.getElementById('backendUrl').value = backendUrl || '';
+      updateBackendHint();
+    });
+
+    setInterval(updateRealLocations, 3000);
+    setInterval(loadSessions, 3000);
+    setInterval(loadHistory, 5000);
+
+    updateRealLocations();
+    loadSessions();
+    loadHistory();
+    startLiveMonitor();
+  </script>
+
+</body>
+</html>

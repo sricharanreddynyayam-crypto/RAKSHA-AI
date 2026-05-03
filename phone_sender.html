@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>RakshaAI Safety Sharing</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #020617, #0f172a);
+      color: white;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card {
+      width: 90%;
+      max-width: 430px;
+      background: #1e293b;
+      padding: 28px;
+      border-radius: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+    }
+
+    h1 {
+      font-size: 30px;
+      margin-bottom: 10px;
+    }
+
+    p {
+      color: #cbd5e1;
+      line-height: 1.5;
+    }
+
+    input {
+      width: 100%;
+      padding: 14px;
+      border-radius: 14px;
+      border: none;
+      margin: 12px 0;
+      font-size: 16px;
+    }
+
+    button {
+      width: 100%;
+      padding: 15px;
+      border: none;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: bold;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+
+    .start {
+      background: #22c55e;
+      color: white;
+    }
+
+    .stop {
+      background: #ef4444;
+      color: white;
+    }
+
+    .status {
+      margin-top: 20px;
+      background: #020617;
+      padding: 16px;
+      border-radius: 16px;
+      font-size: 15px;
+    }
+
+    .small {
+      font-size: 13px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h1>🛡️ RakshaAI Safety Share</h1>
+
+    <p>
+      Share your live location with RakshaAI for safety monitoring.
+      Your location is shared only after you click Start and allow permission.
+    </p>
+
+    <input id="friendName" placeholder="Enter your name" />
+
+    <p class="small">
+      By clicking Start, I agree to share my live GPS location.
+      I can stop sharing anytime.
+    </p>
+
+    <button class="start" onclick="startSharing()">Start Sharing My Location</button>
+    <button class="stop" onclick="stopSharing()" disabled id="stopButton">Stop Sharing</button>
+
+    <div class="status">
+      <p id="status">Waiting to start...</p>
+      <p id="locationText"></p>
+      <p id="accuracyText"></p>
+      <p id="speedText"></p>
+    </div>
+  </div>
+
+  <script>
+    let watchId = null;
+    let batteryPercent = "Unknown";
+
+    async function loadBattery() {
+      try {
+        if (navigator.getBattery) {
+          const battery = await navigator.getBattery();
+          batteryPercent = Math.round(battery.level * 100);
+        }
+      } catch (e) {
+        batteryPercent = "Unknown";
+      }
+    }
+
+    // Use the same origin as this page so the public sender page works from the backend domain.
+    const BACKEND_URL = window.location.origin;
+
+    function startSharing() {
+      const name = document.getElementById("friendName").value.trim();
+
+      if (!name) {
+        alert("Please enter your name");
+        return;
+      }
+
+      if (!navigator.geolocation) {
+        document.getElementById("status").innerText = "GPS not supported on this device.";
+        return;
+      }
+
+      document.getElementById("status").innerText = "Requesting location permission...";
+      loadBattery();
+
+      watchId = navigator.geolocation.watchPosition(async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const accuracy = pos.coords.accuracy;
+        const speed = pos.coords.speed ? pos.coords.speed * 3.6 : 0;
+
+        document.getElementById("status").innerText = "✅ Location sharing ACTIVE";
+        document.getElementById("locationText").innerText = `Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        document.getElementById("accuracyText").innerText = `Accuracy: ${accuracy.toFixed(1)} meters`;
+        document.getElementById("speedText").innerText = `Speed: ${speed.toFixed(1)} km/h`;
+        document.getElementById("stopButton").disabled = false;
+
+        await fetch(`${BACKEND_URL}/location/update`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            user: name,
+            lat: lat,
+            lng: lng,
+            permission: "GRANTED",
+            permission_time: new Date().toLocaleString(),
+            speed: speed,
+            accuracy: accuracy,
+            battery: batteryPercent
+          })
+        });
+
+      }, (error) => {
+        document.getElementById("status").innerText = "Location error: " + error.message;
+      }, {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 10000
+      });
+    }
+
+    function stopSharing() {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+
+      document.getElementById("status").innerText = "🛑 Location sharing stopped.";
+      document.getElementById("stopButton").disabled = true;
+    }
+  </script>
+
+</body>
+</html>
