@@ -1,0 +1,6 @@
+.DS_Store
+*.vsix
+*.env
+venv/
+backend/venv/
+__pycache__/
