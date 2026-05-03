@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RakshaAI Public Safety Tracker</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Inter, Arial, sans-serif;
+      background: radial-gradient(circle at top, #1f2937 0%, #0f172a 100%);
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .page {
+      max-width: 960px;
+      width: 100%;
+      padding: 32px;
+      border-radius: 28px;
+      background: rgba(15, 23, 42, 0.95);
+      box-shadow: 0 25px 80px rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(148, 163, 184, 0.15);
+    }
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 12px;
+      line-height: 1.05;
+    }
+    p {
+      color: #cbd5e1;
+      line-height: 1.8;
+      max-width: 760px;
+    }
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-top: 28px;
+    }
+    .button {
+      display: inline-block;
+      text-decoration: none;
+      color: white;
+      background: #2563eb;
+      padding: 14px 22px;
+      border-radius: 14px;
+      transition: transform 0.2s ease, background 0.2s ease;
+      font-weight: 700;
+    }
+    .button.secondary {
+      background: #0f172a;
+      border: 1px solid #334155;
+    }
+    .button:hover {
+      transform: translateY(-2px);
+      background: #1d4ed8;
+    }
+    .card {
+      margin-top: 32px;
+      background: #020617;
+      border-radius: 22px;
+      padding: 24px;
+      border: 1px solid rgba(148, 163, 184, 0.08);
+    }
+    .card h2 {
+      margin-top: 0;
+      color: #f8fafc;
+    }
+    .share-link {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 14px 18px;
+      border-radius: 14px;
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      font-family: monospace;
+      overflow-wrap: anywhere;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>RakshaAI Public Safety Tracker</h1>
+    <p>
+      This project is now ready to deploy as a public app. Share a permanent domain with friends and let anyone open the tracker on phone or laptop.
+      The public website includes a safe location-sharing flow, a dashboard, and risk monitoring.
+    </p>
+    <div class="buttons">
+      <a class="button" href="/public/phone_sender.html">Open Friend Location Sender</a>
+      <a class="button secondary" href="/admin/dashboard.html">Admin Dashboard</a>
+    </div>
+
+    <div class="card">
+      <h2>Share this page with anyone</h2>
+      <p>
+        Send your friend the public link below. When the app is deployed, this will become your permanent domain.
+      </p>
+      <div class="share-link" id="linkText">Loading public link...</div>
+    </div>
+
+    <div class="card">
+      <h2>How it works</h2>
+      <ul>
+        <li>Open <strong>/share</strong> to allow a friend to send live GPS updates.</li>
+        <li>Open <strong>/dashboard?admin_token=YOUR_SECRET</strong> to see active shared users, routes, and risk status. This page is admin-only.</li>
+        <li>The app uses consent-based tracking and only stores data while users keep the page open.</li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    const linkText = document.getElementById('linkText');
+    const origin = window.location.origin;
+    linkText.innerText = `${origin}/share`;
+  </script>
+</body>
+</html>

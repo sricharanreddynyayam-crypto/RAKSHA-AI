@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RakshaAI Location Sharing</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Inter, Arial, sans-serif;
+      background: linear-gradient(135deg, #020617 0%, #111827 100%);
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      width: 100%;
+      max-width: 520px;
+      background: rgba(15, 23, 42, 0.96);
+      border-radius: 26px;
+      padding: 28px;
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(148, 163, 184, 0.1);
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 2.4rem;
+    }
+    p {
+      color: #cbd5e1;
+      line-height: 1.8;
+    }
+    input {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: #f8fafc;
+      margin-top: 16px;
+      font-size: 1rem;
+    }
+    .actions {
+      margin-top: 20px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    button {
+      flex: 1;
+      padding: 14px 18px;
+      border-radius: 14px;
+      border: none;
+      cursor: pointer;
+      font-weight: 700;
+      color: #fff;
+      transition: transform 0.2s ease;
+    }
+    button:hover { transform: translateY(-1px); }
+    .start { background: #22c55e; }
+    .stop { background: #ef4444; }
+    .status {
+      margin-top: 22px;
+      padding: 18px;
+      border-radius: 18px;
+      background: #020617;
+      border: 1px solid rgba(148, 163, 184, 0.08);
+    }
+    .status p { margin: 10px 0; }
+    .hint { color: #94a3b8; font-size: 0.95rem; }
+    .link {
+      margin-top: 18px;
+      display: inline-block;
+      font-size: 0.95rem;
+      color: #38bdf8;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Share Your GPS Location</h1>
+    <p>Use this page to safely share your live location with the RakshaAI tracker. Location is sent only while this page is open and active.</p>
+
+    <label for="friendName">Your name</label>
+    <input id="friendName" placeholder="Enter your name" autocomplete="off" />
+
+    <div class="actions">
+      <button class="start" id="startButton" onclick="startSharing()">Start Sharing</button>
+      <button class="stop" id="stopButton" onclick="stopSharing()" disabled>Stop</button>
+    </div>
+
+    <div class="status">
+      <p><strong>Status:</strong> <span id="status">Waiting for start...</span></p>
+      <p id="locationText"></p>
+      <p id="accuracyText"></p>
+      <p id="speedText"></p>
+      <p id="batteryText"></p>
+    </div>
+
+    <div class="hint" id="shareHint">
+      Use this page from a public HTTPS URL or localhost. If opening on a phone from another device, use ngrok or a deployed domain.
+    </div>
+
+    <a class="link" href="/dashboard?admin_token=YOUR_SECRET">Open live dashboard (admin only)</a>
+    <p class="hint">If you close this page, location updates stop automatically.</p>
+  </div>
+
+  <script>
+    const BACKEND_URL = window.location.origin;
+    let watchId = null;
+    let batteryLevel = null;
+
+    async function getBatteryLevel() {
+      try {
+        const battery = await navigator.getBattery();
+        batteryLevel = Math.round(battery.level * 100);
+      } catch (error) {
+        batteryLevel = null;
+      }
+      document.getElementById('batteryText').innerText = batteryLevel !== null ? `Battery: ${batteryLevel}%` : 'Battery: unavailable';
+    }
+
+    async function startSharing() {
+      const name = document.getElementById('friendName').value.trim();
+      if (!name) {
+        alert('Please enter your name first.');
+        return;
+      }
+      if (!navigator.geolocation) {
+        document.getElementById('status').innerText = 'GPS not supported by this browser.';
+        return;
+      }
+
+      document.getElementById('status').innerText = 'Waiting for location permission...';
+      await getBatteryLevel();
+
+      watchId = navigator.geolocation.watchPosition(async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        const accuracy = position.coords.accuracy;
+        const speed = position.coords.speed !== null ? position.coords.speed * 3.6 : 0;
+
+        document.getElementById('status').innerText = 'Sharing location now';
+        document.getElementById('locationText').innerText = `Position: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        document.getElementById('accuracyText').innerText = `Accuracy: ${accuracy.toFixed(1)} m`;
+        document.getElementById('speedText').innerText = `Speed: ${speed.toFixed(1)} km/h`;
+        document.getElementById('batteryText').innerText = batteryLevel !== null ? `Battery: ${batteryLevel}%` : 'Battery: unavailable';
+        document.getElementById('stopButton').disabled = false;
+        document.getElementById('startButton').disabled = true;
+
+        try {
+          const updateResponse = await fetch(`${BACKEND_URL}/location/update`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user: name,
+              lat,
+              lng,
+              permission: 'GRANTED',
+              permission_time: new Date().toLocaleString(),
+              speed,
+              accuracy,
+              battery: batteryLevel ?? 100
+            })
+          });
+
+          if (!updateResponse.ok) {
+            throw new Error(`Backend returned ${updateResponse.status}`);
+          }
+        } catch (err) {
+          document.getElementById('status').innerText = `Update failed: ${err.message}`;
+          console.error('Location update failed', err);
+        }
+      }, (error) => {
+        document.getElementById('status').innerText = `Location error: ${error.message}`;
+      }, {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 20000
+      });
+    }
+
+    function stopSharing() {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      document.getElementById('status').innerText = 'Location sharing stopped.';
+      document.getElementById('stopButton').disabled = true;
+      document.getElementById('startButton').disabled = false;
+    }
+
+    window.addEventListener('load', () => {
+      document.getElementById('status').innerText = 'Ready to share location.';
+    });
+  </script>
+</body>
+</html>

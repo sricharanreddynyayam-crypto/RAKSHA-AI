@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RakshaAI Live Dashboard</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body {
+      margin: 0;
+      font-family: Inter, Arial, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    main {
+      max-width: 1160px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    h1 {
+      margin-bottom: 10px;
+      font-size: 2.6rem;
+    }
+    #map {
+      width: 100%;
+      height: 520px;
+      border-radius: 22px;
+      border: 1px solid #334155;
+      margin-top: 18px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+    }
+    .panel {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 22px;
+    }
+    .card {
+      background: #111827;
+      border-radius: 20px;
+      padding: 22px;
+      border: 1px solid #334155;
+      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.05);
+    }
+    .status {
+      display: inline-block;
+      padding: 8px 12px;
+      border-radius: 999px;
+    }
+    .online { background: #16a34a15; color: #4ade80; }
+    .offline { background: #dc262615; color: #fca5a5; }
+    .button {
+      margin-top: 12px;
+      padding: 13px 18px;
+      border-radius: 14px;
+      color: #fff;
+      text-decoration: none;
+      display: inline-block;
+      background: #2563eb;
+    }
+    .mini {
+      color: #cbd5e1;
+      font-size: 0.95rem;
+    }
+    .list-item {
+      margin-bottom: 12px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+      padding-bottom: 12px;
+    }
+    .tag.safe { color: #22c55e; }
+    .tag.watch { color: #facc15; }
+    .tag.danger { color: #ef4444; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>RakshaAI Live Tracking Dashboard</h1>
+    <p class="mini">Public tracking view. Works on phones and laptops when deployed, with location sharing consent from users.</p>
+    <div class="card" style="margin-bottom: 18px;">
+      <h2>Admin access</h2>
+      <p>Enter the secret token to load the live dashboard data.</p>
+      <input id="adminTokenInput" type="password" placeholder="Admin secret" style="width:100%; padding:12px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; margin-top:12px;" />
+      <button class="button" style="margin-top:12px;" onclick="saveAdminToken()">Save Admin Token</button>
+      <p id="adminStatus" class="mini" style="margin-top:12px;">Saved token will be reused in this browser.</p>
+    </div>
+    <a class="button" href="/share">Share Location Page</a>
+    <div id="map"></div>
+
+    <div class="panel">
+      <div class="card">
+        <h2>Current users</h2>
+        <p><strong>Total active users:</strong> <span id="totalUsers">0</span></p>
+        <p><strong>Top user:</strong> <span id="trackingUser">None</span></p>
+        <p><strong>Accuracy:</strong> <span id="accuracyStatus">N/A</span></p>
+        <p><strong>Battery:</strong> <span id="batteryStatus">N/A</span></p>
+        <p><strong>Status:</strong> <span id="permissionStatus">N/A</span></p>
+      </div>
+      <div class="card">
+        <h2>Live risk summary</h2>
+        <p><strong>Risk band:</strong> <span id="riskBand">SAFE</span></p>
+        <p><strong>Reason:</strong> <span id="riskReason">Waiting for data...</span></p>
+        <p><strong>Last update:</strong> <span id="lastUpdate">--</span></p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="card">
+        <h2>Active sessions</h2>
+        <div id="sessionList">Loading sessions...</div>
+      </div>
+      <div class="card">
+        <h2>Travel history</h2>
+        <div id="historyPanel">Loading routes...</div>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const BACKEND_URL = window.location.origin;
+    const ADMIN_TOKEN_KEY = 'rakshaai_admin_token';
+    let ADMIN_TOKEN = localStorage.getItem(ADMIN_TOKEN_KEY) || new URLSearchParams(window.location.search).get('admin_token') || '';
+
+    if (ADMIN_TOKEN) {
+      localStorage.setItem(ADMIN_TOKEN_KEY, ADMIN_TOKEN);
+    }
+
+    function getAdminQuery() {
+      return ADMIN_TOKEN ? `?admin_token=${encodeURIComponent(ADMIN_TOKEN)}` : '';
+    }
+
+    function refreshAdminStatus() {
+      const status = document.getElementById('adminStatus');
+      status.innerText = ADMIN_TOKEN ? 'Admin token saved. Refreshing dashboard...' : 'Saved token will be reused in this browser.';
+    }
+
+    function saveAdminToken() {
+      const token = document.getElementById('adminTokenInput').value.trim();
+      if (!token) {
+        document.getElementById('adminStatus').innerText = 'Please enter a valid token.';
+        return;
+      }
+      ADMIN_TOKEN = token;
+      localStorage.setItem(ADMIN_TOKEN_KEY, ADMIN_TOKEN);
+      document.getElementById('adminStatus').innerText = 'Admin token saved. Refreshing dashboard...';
+      setTimeout(() => {
+        refreshAll();
+      }, 100);
+    }
+
+    const map = L.map('map').setView([20.5937, 78.9629], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const userMarkers = {};
+    const userPaths = {};
+
+    function getTagClass(risk) {
+      if (!risk) return 'safe';
+      if (risk.risk_band === 'DANGER') return 'danger';
+      if (risk.risk_band === 'WATCH') return 'watch';
+      return 'safe';
+    }
+
+    async function fetchLive() {
+      if (!ADMIN_TOKEN) {
+        document.getElementById('riskReason').innerText = 'Admin token missing. Enter it above or use /dashboard?admin_token=YOUR_SECRET';
+        return;
+      }
+
+      try {
+        const response = await fetch(`${BACKEND_URL}/location/latest${getAdminQuery()}`);
+        if (!response.ok) {
+          throw new Error(`Backend returned ${response.status}`);
+        }
+        const data = await response.json();
+        const now = new Date().toLocaleTimeString();
+        document.getElementById('lastUpdate').innerText = now;
+
+        if (!data.users) {
+          document.getElementById('riskReason').innerText = 'No data returned from server.';
+          return;
+        }
+
+        document.getElementById('totalUsers').innerText = data.total_users;
+
+        let topRisk = { risk_band: 'SAFE', reasons: [] };
+        let firstLocation = null;
+
+        data.users.forEach((user, index) => {
+          if (index === 0) {
+            document.getElementById('trackingUser').innerText = user.user;
+            document.getElementById('accuracyStatus').innerText = `${user.accuracy || 0} m`;
+            document.getElementById('batteryStatus').innerText = `${user.battery || 0}%`;
+            document.getElementById('permissionStatus').innerHTML = user.status === 'ONLINE' ? '<span class="status online">ONLINE</span>' : '<span class="status offline">OFFLINE</span>';
+          }
+
+          const risk = user.real_risk || {};
+          if (risk.risk_score > (topRisk.risk_score || 0)) {
+            topRisk = risk;
+          }
+
+          const latlng = [user.lat, user.lng];
+          if (!firstLocation) {
+            firstLocation = latlng;
+          }
+
+          if (!userMarkers[user.user]) {
+            userMarkers[user.user] = L.marker(latlng).addTo(map).bindPopup(user.user);
+            userPaths[user.user] = L.polyline([], { color: '#38bdf8', weight: 4 }).addTo(map);
+          }
+          userMarkers[user.user].setLatLng(latlng);
+
+          if (user.route && user.route.length > 0) {
+            userPaths[user.user].setLatLngs(user.route.map(point => [point[0], point[1]]));
+          }
+        });
+
+        if (firstLocation) {
+          map.setView(firstLocation, 13);
+        }
+
+      document.getElementById('riskBand').innerText = topRisk.risk_band || 'SAFE';
+      document.getElementById('riskReason').innerText = topRisk.reasons?.join(', ') || 'No active concerns';
+    }
+
+    async function loadSessions() {
+      if (!ADMIN_TOKEN) {
+        document.getElementById('sessionList').innerHTML = '<p>Admin token required to view sessions.</p>';
+        return;
+      }
+      const res = await fetch(`${BACKEND_URL}/tracking/sessions${getAdminQuery()}`);
+      const list = document.getElementById('sessionList');
+      if (!res.ok) {
+        list.innerHTML = `<p>Unable to load sessions: ${res.status}</p>`;
+        return;
+      }
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) {
+        list.innerHTML = '<p>No active sessions</p>';
+        return;
+      }
+      list.innerHTML = data.map(session => `
+        <div class="list-item">
+          <strong>${session.user}</strong><br>
+          Status: ${session.status} · ${session.vehicle} · ${session.speed} km/h<br>
+          Battery: ${session.battery}% · Route points: ${session.route_points}
+        </div>
+      `).join('');
+    }
+
+    async function loadHistory() {
+      if (!ADMIN_TOKEN) {
+        document.getElementById('historyPanel').innerHTML = '<p>Admin token required to view history.</p>';
+        return;
+      }
+      const res = await fetch(`${BACKEND_URL}/tracking/history${getAdminQuery()}`);
+      const panel = document.getElementById('historyPanel');
+      if (!res.ok) {
+        panel.innerHTML = `<p>Unable to load history: ${res.status}</p>`;
+        return;
+      }
+      const data = await res.json();
+      if (!data.history || data.history.length === 0) {
+        panel.innerHTML = '<p>No route history yet.</p>';
+        return;
+      }
+      panel.innerHTML = data.history.slice(-6).map(point => `
+        <div class="list-item">
+          ${point.user}: ${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}<br>
+          ${point.timestamp}
+        </div>
+      `).join('');
+    }
+
+    async function refreshAll() {
+      await Promise.all([fetchLive(), loadSessions(), loadHistory()]);
+    }
+
+    window.addEventListener('load', () => {
+      if (ADMIN_TOKEN) {
+        document.getElementById('adminTokenInput').value = ADMIN_TOKEN;
+      }
+      refreshAdminStatus();
+      refreshAll();
+      setInterval(refreshAll, 5000);
+    });
+  </script>
+</body>
+</html>
